@@ -1,0 +1,98 @@
+import ollama
+import os
+import xml.etree.ElementTree as ET
+from itertools import combinations
+
+def read_pnml_file(file_path):
+    """Reads the XML content of a PNML (Petri Net Markup Language) file."""
+    with open(file_path, 'r', encoding='utf-8') as file:
+        return file.read()
+
+def extract_transitions(file_path):
+    """Extracts transition names from a PNML file."""
+    tree = ET.parse(file_path)
+    root = tree.getroot()
+    ns = {'pnml': 'http://www.pnml.org/version-2009/grammar/pnml'}  # standard PNML namespace
+
+    transition_names = []
+    for transition in root.findall(".//pnml:transition", ns):
+        name_elem = transition.find("pnml:name/pnml:text", ns)
+        if name_elem is not None and name_elem.text:
+            transition_names.append(name_elem.text)
+    return transition_names
+
+def compare_pnml_files(file1_path, file2_path):
+    """Compares two Petri Net models using Llama 3 and the adapted Petri net prompt."""
+    name_1 = os.path.basename(file1_path)
+    name_2 = os.path.basename(file2_path)
+
+    transitions1 = extract_transitions(file1_path)
+    transitions2 = extract_transitions(file2_path)
+
+    prompt = f"""
+# Context and Role Specification
+You are a process analysis expert specialized in Petri net comparison, process similarity, and model alignment.
+
+# Scope and Task Definition
+Compare two Petri net models and identify correspondences (mappings) between their components (transitions and optionally places).
+Then perform a structured self-critique and correction phase before producing final metrics.
+
+Input:
+Petri Net 1: {transitions1}
+Petri Net 2: {transitions2}
+
+# Procedure Design and Output Structuring
+1) Identify all **1:1 correspondences** between transitions of the two Petri nets.
+   (If 1:N or N:M exist, mention them briefly, but focus on 1:1.)
+2) For each mapping, compute a **similarity score (0–1)** using cosine similarity between vector embeddings of the transition labels and context features.
+   This score combines lexical, semantic, and functional resemblance.
+3) Classify each mapping as:
+   - VB (Verbatim): similarity > 0.90
+   - MC (Modified Copy): similarity 0.65–0.90
+   - HR (High Revision): similarity < 0.65
+4) Output mappings **grouped by category** (VB first, then MC, then HR) in this format:
+   "Transition A" -> "Transition B" [VB/MC/HR, similarity: x.xx]
+   Include a short justification (1–2 lines) for each mapping.
+5) After listing all mappings, perform a **self-critique and correction** phase:
+   - Identify potential errors or ambiguities (misclassifications, vague transitions, naming issues).
+   - Explain reasoning limits (missing context, unclear function, inconsistent wording).
+   - Propose corrected or adjusted mappings when needed.
+   - Clearly separate **revised mappings** from initial ones.
+6) Conclude with **final metrics**:
+   - Total transitions in each Petri net
+   - Count + % of VB, MC, HR
+   - Ambiguous / duplicated / missing transitions
+   - Global similarity score (weighted average of mapping similarities using cosine similarity)
+
+# Expected output sections:
+A) Initial mappings (VB → MC → HR)
+B) Self-critique and revised mappings
+C) Final metrics and global similarity
+"""
+
+    response = ollama.chat(model='llama3', messages=[{'role': 'user', 'content': prompt}])
+    
+    # Print the result
+    print(f"\n=== Comparison: {name_1} vs {name_2} ===\n")
+    print(response['message']['content'])
+    print("\n" + "="*80 + "\n")
+
+def batch_compare_pnml_files(pnml_files):
+    """Compares all combinations of PNML files in the list."""
+    for file1, file2 in combinations(pnml_files, 2):
+        try:
+            compare_pnml_files(file1, file2)
+        except FileNotFoundError as e:
+            print(f"File not found: {e}")
+        except Exception as e:
+            print(f"Error comparing {file1} vs {file2}: {e}")
+
+# 👇 List all your PNML files here
+pnml_files = [
+    "net1.pnml",
+    "net2.pnml",
+    "net3.pnml"
+]
+
+# Run comparisons for all pairs
+batch_compare_pnml_files(pnml_files)
