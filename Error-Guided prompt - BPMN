@@ -1,0 +1,100 @@
+import ollama
+import os
+import xml.etree.ElementTree as ET
+from itertools import combinations
+
+def read_bpmn_file(file_path):
+    """Reads the XML content of a BPMN file."""
+    with open(file_path, 'r', encoding='utf-8') as file:
+        return file.read()
+
+def extract_task_names(file_path):
+    """Extracts task names from a BPMN file."""
+    tree = ET.parse(file_path)
+    root = tree.getroot()
+    ns = {'bpmn': 'http://www.omg.org/spec/BPMN/20100524/MODEL'}
+
+    task_names = []
+    for task_type in ['task', 'userTask', 'manualTask', 'serviceTask', 'scriptTask', 
+                      'businessRuleTask', 'sendTask', 'receiveTask', 'callActivity']:
+        for task in root.findall(f".//bpmn:{task_type}", ns):
+            name = task.attrib.get('name')
+            if name:
+                task_names.append(name)
+    return task_names
+
+def compare_bpmn_files(file1_path, file2_path):
+    """Compares two BPMN models using Llama 3 with the detailed prompt."""
+    name_1 = os.path.basename(file1_path)
+    name_2 = os.path.basename(file2_path)
+
+    tasks1 = extract_task_names(file1_path)
+    tasks2 = extract_task_names(file2_path)
+
+prompt = f"""
+# Context and Role
+You are a process alignment expert specialized in BPMN comparison, semantic similarity, and self-evaluation.
+
+Take the initial mapping CSV (output from Phase 1 applied to the test set) and perform a self-critique to detect and 
+correct errors,
+guided by refinement rules learned from the training phase.
+
+# Input Data(Examples)
+Initial Mapping CSV: {initial_mapping_csv}  # Contains initial mappings and error labels for test set
+Ground Truth Mappings: {ground_truth_mappings}
+Refinement Rules from Training: {refinement_rules}
+
+# Scope and Task Definition 
+1) Apply the refinement rules to guide detection of errors and corrections.
+2) Identify errors in the CSV:
+   - False positives (mapping present but not in ground truth)
+   - False negatives (mapping missing but present in ground truth)
+   - Category errors (VB vs MC vs HR)
+3) Propose corrected mappings based on the refinement rules.
+4) Compute evaluation metrics:
+   - Precision = TP / (TP + FP)
+   - Recall = TP / (TP + FN)
+   - F1 = harmonic mean of Precision and Recall
+  
+# Procedure Design and Output Structuring 
+
+A) SelfCritique (detected errors + revised mappings using refinement rules)
+B) Evaluation (metrics vs. ground truth)
+
+# Verification, Termination, and Iterative Refinement
+Terminate once mappings, critique, and metrics are coherent and internally justified.
+Return the output in English and structured JSON-like blocks.
+"""
+
+    response = ollama.chat(model='llama3', messages=[{'role': 'user', 'content': prompt}])
+    
+    # Print the result
+    print(f"\n=== Comparison: {name_1} vs {name_2} ===\n")
+    print(response['message']['content'])
+    print("\n" + "="*80 + "\n")
+
+def batch_compare_bpmn_files(bpmn_files):
+    """Compares all combinations of BPMN files in the list."""
+    for file1, file2 in combinations(bpmn_files, 2):
+        try:
+            compare_bpmn_files(file1, file2)
+        except FileNotFoundError as e:
+            print(f"File not found: {e}")
+        except Exception as e:
+            print(f"Error comparing {file1} vs {file2}: {e}")
+
+# 👇 List all your BPMN files here
+bpmn_files = [
+    "Cologne.bpmn",
+    "Frankfurt.bpmn",
+    "IIS_Erlangen.bpmn",
+    "Fu_Berlin.bpmn",
+    "Hohenheim.bpmn",
+    "Potsdam.bpmn",
+    "Muenster.bpmn",
+    "Tu_Munich.bpmn",
+    "Wuerzburg.bpmn"
+]
+
+# Run comparisons for all pairs
+batch_compare_bpmn_files(bpmn_files)
