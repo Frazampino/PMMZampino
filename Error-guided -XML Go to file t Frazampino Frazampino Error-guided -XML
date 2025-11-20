@@ -1,0 +1,97 @@
+import os
+import xml.etree.ElementTree as ET
+from itertools import combinations
+import ollama  # Assicurati di avere 'ollama' installato e funzionante
+
+def read_xml_file(file_path):
+    """Reads the XML content of a file."""
+    with open(file_path, 'r', encoding='utf-8') as file:
+        return file.read()
+
+def extract_elements(file_path, tag_name="transition"):
+    """Extracts element texts from a given XML file for a specified tag."""
+    tree = ET.parse(file_path)
+    root = tree.getroot()
+    element_texts = []
+
+    for elem in root.findall(f".//{tag_name}"):
+        # try to extract text directly or from sub-element <text>
+        if elem.text and elem.text.strip():
+            element_texts.append(elem.text.strip())
+        else:
+            text_elem = elem.find("text")
+            if text_elem is not None and text_elem.text:
+                element_texts.append(text_elem.text.strip())
+    return element_texts
+
+def compare_xml_files(file1_path, file2_path, tag_name="transition"):
+    """Compares two XML files using Ollama with a structured semantic prompt."""
+    name_1 = os.path.basename(file1_path)
+    name_2 = os.path.basename(file2_path)
+
+    elements1 = extract_elements(file1_path, tag_name)
+    elements2 = extract_elements(file2_path, tag_name)
+
+    prompt = f"""
+# Context and Role
+You are a data alignment expert specialized in XML file comparison, semantic mapping, and model consistency analysis.
+
+# Input Data
+XML File 1 ({name_1}) Elements: {elements1}
+XML File 2 ({name_2}) Elements: {elements2}
+
+# Task Definition
+1) Identify mappings between elements of the two XML files.
+2) Classify each mapping as:
+   - Simple (1:1)
+   - Complex (1:N)
+   - None (no correspondence)
+3) Suggest corrected or improved mappings based on semantic similarity.
+4) If possible, include simple evaluation metrics:
+   - Precision, Recall, F1 (if context supports it)
+5) Highlight unmatched or ambiguous elements.
+
+# Output Format
+Return the output in **structured JSON-like format**:
+{{
+  "Simple_Mappings": [
+    {{"File1_Element": "A", "File2_Element": "B", "Similarity": 0.94}}
+  ],
+  "Complex_Mappings": [
+    {{"File1_Element": "A", "File2_Elements": ["B", "C"], "Similarity_Avg": 0.78}}
+  ],
+  "No_Match": ["X", "Y"],
+  "Evaluation": {{
+    "Precision": "...",
+    "Recall": "...",
+    "F1": "..."
+  }},
+  "Comments": "Short rationale and mapping summary."
+}}
+"""
+
+    response = ollama.chat(model='llama3', messages=[{'role': 'user', 'content': prompt}])
+    
+    print(f"\n=== Comparison: {name_1} vs {name_2} ===\n")
+    print(response['message']['content'])
+    print("\n" + "="*80 + "\n")
+
+def batch_compare_xml_files(xml_files, tag_name="transition"):
+    """Compares all combinations of XML files in the list."""
+    for file1, file2 in combinations(xml_files, 2):
+        try:
+            compare_xml_files(file1, file2, tag_name)
+        except FileNotFoundError as e:
+            print(f"File not found: {e}")
+        except Exception as e:
+            print(f"Error comparing {file1} vs {file2}: {e}")
+
+# 👇 List your XML files here
+xml_files = [
+    "file1.xml",
+    "file2.xml",
+    "file3.xml"
+]
+
+# Run comparisons for all file pairs
+batch_compare_xml_files(xml_files, tag_name="transition")
