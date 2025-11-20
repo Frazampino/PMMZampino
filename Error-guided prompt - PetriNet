@@ -1,0 +1,79 @@
+import ollama
+import os
+import xml.etree.ElementTree as ET
+from itertools import combinations
+
+def read_pnml_file(file_path):
+    """Reads the XML content of a PNML (Petri Net Markup Language) file."""
+    with open(file_path, 'r', encoding='utf-8') as file:
+        return file.read()
+
+def extract_transitions(file_path):
+    """Extracts transition names from a PNML file."""
+    tree = ET.parse(file_path)
+    root = tree.getroot()
+    ns = {'pnml': 'http://www.pnml.org/version-2009/grammar/pnml'}  # standard PNML namespace
+
+    transition_names = []
+    for transition in root.findall(".//pnml:transition", ns):
+        name_elem = transition.find("pnml:name/pnml:text", ns)
+        if name_elem is not None and name_elem.text:
+            transition_names.append(name_elem.text)
+    return transition_names
+
+def compare_pnml_files(file1_path, file2_path):
+    """Compares two Petri Net models using Llama 3 with the detailed prompt."""
+    name_1 = os.path.basename(file1_path)
+    name_2 = os.path.basename(file2_path)
+
+    transitions1 = extract_transitions(file1_path)
+    transitions2 = extract_transitions(file2_path)
+
+    prompt = f"""
+# Context and Role
+You are a process alignment expert specialized in Petri net comparison, semantic similarity, and self-evaluation.
+
+# Input Data
+Petri Net 1 Transitions: {transitions1}
+Petri Net 2 Transitions: {transitions2}
+
+# Scope and Task Definition
+1) Identify mappings between transitions of the two Petri nets.
+2) Classify mappings as:
+   - Simple (1:1)
+   - Complex (1:N)
+   - None (no correspondence)
+3) Suggest corrected mappings based on semantic similarity and structural correspondence.
+4) Provide evaluation metrics if ground truth is available:
+   - Precision, Recall, F1
+
+# Procedure Design and Output Structuring
+Return the output in English, structured in JSON-like blocks.
+"""
+
+    response = ollama.chat(model='llama3', messages=[{'role': 'user', 'content': prompt}])
+    
+    # Print the result
+    print(f"\n=== Comparison: {name_1} vs {name_2} ===\n")
+    print(response['message']['content'])
+    print("\n" + "="*80 + "\n")
+
+def batch_compare_pnml_files(pnml_files):
+    """Compares all combinations of PNML files in the list."""
+    for file1, file2 in combinations(pnml_files, 2):
+        try:
+            compare_pnml_files(file1, file2)
+        except FileNotFoundError as e:
+            print(f"File not found: {e}")
+        except Exception as e:
+            print(f"Error comparing {file1} vs {file2}: {e}")
+
+# 👇 List all your PNML files here
+pnml_files = [
+    "net1.pnml",
+    "net2.pnml",
+    "net3.pnml"
+]
+
+# Run comparisons for all pairs
+batch_compare_pnml_files(pnml_files)
