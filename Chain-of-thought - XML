@@ -1,0 +1,99 @@
+import os
+import xml.etree.ElementTree as ET
+from itertools import combinations
+import ollama  # assicurati di avere 'ollama' installato e configurato
+
+def read_xml_file(file_path):
+    """Legge e restituisce il contenuto di un file XML."""
+    with open(file_path, 'r', encoding='utf-8') as file:
+        return file.read()
+
+def extract_xml_elements(file_path, tag_name="transition"):
+    """
+    Estrae i valori di testo di un determinato tag da un file XML.
+    Di default cerca elementi <transition>, ma puoi specificarne altri.
+    """
+    tree = ET.parse(file_path)
+    root = tree.getroot()
+    elements = []
+
+    for elem in root.findall(f".//{tag_name}"):
+        text = None
+        # cerca testo interno diretto o sotto-tag comuni
+        if elem.text and elem.text.strip():
+            text = elem.text.strip()
+        else:
+            text_elem = elem.find("text")
+            if text_elem is not None and text_elem.text:
+                text = text_elem.text.strip()
+        if text:
+            elements.append(text)
+    return elements
+
+def compare_xml_files(file1_path, file2_path, tag_name="transition"):
+    """Confronta due file XML utilizzando Ollama e un prompt strutturato."""
+    name_1 = os.path.basename(file1_path)
+    name_2 = os.path.basename(file2_path)
+
+    elems1 = extract_xml_elements(file1_path, tag_name)
+    elems2 = extract_xml_elements(file2_path, tag_name)
+
+    prompt = f"""
+# Ruolo e contesto
+Sei un esperto di analisi strutturale XML specializzato nel confronto semantico e sintattico di elementi.
+
+# Compito
+Confronta due insiemi di elementi XML e individua le corrispondenze (mapping) tra di essi.
+Ogni mapping deve avere un punteggio di similarità (0–1) e una classificazione.
+
+Input:
+File 1 ({name_1}): {elems1}
+File 2 ({name_2}): {elems2}
+
+# Procedura
+1) Identifica le corrispondenze 1:1 tra elementi simili.
+2) Calcola un punteggio di similarità (0–1) basato su somiglianza lessicale e semantica.
+3) Classifica ciascun mapping:
+   - VB (Verbatim): >0.90
+   - MC (Moderata Copia): 0.65–0.90
+   - HR (Alta Revisione): <0.65
+4) Riporta i mapping per categoria con una breve giustificazione.
+5) Fai un'autocritica, correggi eventuali mapping errati e fornisci versioni riviste.
+6) Concludi con metriche finali:
+   - Numero di elementi in ciascun file
+   - Conteggio + % di VB, MC, HR
+   - Similarità globale media
+   - Elementi non mappati o ambigui
+
+# Output atteso
+A) Mapping iniziali (VB → MC → HR)
+B) Revisione e autocritica
+C) Metriche finali e valutazione complessiva
+"""
+
+    response = ollama.chat(model='llama3', messages=[{'role': 'user', 'content': prompt}])
+    
+    print(f"\n=== Confronto: {name_1} vs {name_2} ===\n")
+    print(response['message']['content'])
+    print("\n" + "="*80 + "\n")
+
+def batch_compare_xml_files(xml_files, tag_name="transition"):
+    """Confronta tutti i file XML della lista in coppie."""
+    for file1, file2 in combinations(xml_files, 2):
+        try:
+            compare_xml_files(file1, file2, tag_name=tag_name)
+        except FileNotFoundError as e:
+            print(f"File non trovato: {e}")
+        except Exception as e:
+            print(f"Errore nel confronto {file1} vs {file2}: {e}")
+
+# 👇 Inserisci qui i tuoi file XML
+xml_files = [
+    "file1.xml",
+    "file2.xml",
+    "file3.xml"
+]
+
+# Esegui i confronti per tutte le coppie
+batch_compare_xml_files(xml_files, tag_name="transition")
+
